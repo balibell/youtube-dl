@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 
 import hashlib
 import re
+import json
+
 
 from .common import InfoExtractor
 from ..compat import (
@@ -146,49 +148,90 @@ class BiliBiliIE(InfoExtractor):
 
         entries = []
 
-        RENDITIONS = ('qn=80&quality=80&type=', 'quality=2&type=mp4')
-        for num, rendition in enumerate(RENDITIONS, start=1):
-            payload = 'appkey=%s&cid=%s&otype=json&%s' % (self._APP_KEY, cid, rendition)
-            sign = hashlib.md5((payload + self._BILIBILI_KEY).encode('utf-8')).hexdigest()
 
-            video_info = self._download_json(
-                'http://interface.bilibili.com/v2/playurl?%s&sign=%s' % (payload, sign),
-                video_id, note='Downloading video info page',
-                headers=headers, fatal=num == len(RENDITIONS))
+        video_info_search = self._html_search_regex(
+            ('window.__playinfo__=(?P<video_info_search>[^<]*)<\/script>'), webpage, 'video_info_search',
+            group='video_info_search')
 
-            if not video_info:
-                continue
+        video_info = json.loads(video_info_search);
 
-            if 'durl' not in video_info:
-                if num < len(RENDITIONS):
-                    continue
-                self._report_error(video_info)
+        print video_info['durl']
 
-            for idx, durl in enumerate(video_info['durl']):
-                formats = [{
-                    'url': durl['url'],
-                    'filesize': int_or_none(durl['size']),
-                }]
-                for backup_url in durl.get('backup_url', []):
-                    formats.append({
-                        'url': backup_url,
-                        # backup URLs have lower priorities
-                        'preference': -2 if 'hd.mp4' in backup_url else -3,
-                    })
+        if not video_info:
+            self._report_error(video_info)
 
-                for a_format in formats:
-                    a_format.setdefault('http_headers', {}).update({
-                        'Referer': url,
-                    })
+        if 'durl' not in video_info:
+            self._report_error(video_info)
 
-                self._sort_formats(formats)
-
-                entries.append({
-                    'id': '%s_part%s' % (video_id, idx),
-                    'duration': float_or_none(durl.get('length'), 1000),
-                    'formats': formats,
+        for idx, durl in enumerate(video_info['durl']):
+            formats = [{
+                'url': durl['url'],
+                'filesize': int_or_none(durl['size']),
+            }]
+            for backup_url in durl.get('backup_url', []):
+                formats.append({
+                    'url': backup_url,
+                    # backup URLs have lower priorities
+                    'preference': -2 if 'hd.mp4' in backup_url else -3,
                 })
-            break
+
+            for a_format in formats:
+                a_format.setdefault('http_headers', {}).update({
+                    'Referer': url,
+                })
+
+            self._sort_formats(formats)
+
+            entries.append({
+                'id': '%s_part%s' % (video_id, idx),
+                'duration': float_or_none(durl.get('length'), 1000),
+                'formats': formats,
+            })
+
+
+        # RENDITIONS = ('qn=80&quality=80&type=', 'quality=2&type=mp4')
+        # for num, rendition in enumerate(RENDITIONS, start=1):
+        #     payload = 'appkey=%s&cid=%s&otype=json&%s' % (self._APP_KEY, cid, rendition)
+        #     sign = hashlib.md5((payload + self._BILIBILI_KEY).encode('utf-8')).hexdigest()
+
+        #     video_info = self._download_json(
+        #         'http://interface.bilibili.com/v2/playurl?%s&sign=%s' % (payload, sign),
+        #         video_id, note='Downloading video info page',
+        #         headers=headers, fatal=num == len(RENDITIONS))
+
+        #     if not video_info:
+        #         continue
+
+        #     if 'durl' not in video_info:
+        #         if num < len(RENDITIONS):
+        #             continue
+        #         self._report_error(video_info)
+
+        #     for idx, durl in enumerate(video_info['durl']):
+        #         formats = [{
+        #             'url': durl['url'],
+        #             'filesize': int_or_none(durl['size']),
+        #         }]
+        #         for backup_url in durl.get('backup_url', []):
+        #             formats.append({
+        #                 'url': backup_url,
+        #                 # backup URLs have lower priorities
+        #                 'preference': -2 if 'hd.mp4' in backup_url else -3,
+        #             })
+
+        #         for a_format in formats:
+        #             a_format.setdefault('http_headers', {}).update({
+        #                 'Referer': url,
+        #             })
+
+        #         self._sort_formats(formats)
+
+        #         entries.append({
+        #             'id': '%s_part%s' % (video_id, idx),
+        #             'duration': float_or_none(durl.get('length'), 1000),
+        #             'formats': formats,
+        #         })
+        #     break
 
         title = self._html_search_regex(
             ('<h1[^>]+\btitle=(["\'])(?P<title>(?:(?!\1).)+)\1',
